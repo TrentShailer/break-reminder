@@ -1,8 +1,4 @@
-use std::{
-    sync::mpsc::Receiver,
-    thread,
-    time::{Duration, Instant},
-};
+use std::{sync::mpsc::Receiver, thread, time::Duration};
 
 use tracing::{error, info};
 use uuid::Uuid;

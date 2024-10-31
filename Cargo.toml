@@ -1,6 +1,6 @@
 [package]
 name = "break-reminder"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -8,6 +8,7 @@ windows = { version = "0.58", features = [
 	"Win32_Security",               # Process mutex
 	"Win32_System_Threading",       # Process mutex
 	"Win32_UI_WindowsAndMessaging", # Message Box
+	"Win32_UI_Controls",            # Task dialog
 ] }
 windows-result = { version = "0.2" }
 
@@ -22,6 +23,7 @@ uuid = { version = "1.11", features = ["v4"] }
 winit = { version = "0.30", features = ["rwh_06"] }
 raw-window-handle = "0.6"
 tray-icon = "0.14"
+
 
 [build-dependencies]
 embed-resource = "2.4"

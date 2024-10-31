@@ -1,46 +1,153 @@
-use std::{sync::mpsc::Receiver, thread, time::Duration};
+use std::{
+    sync::mpsc::{Receiver, TryRecvError},
+    thread::{self},
+    time::{Duration, Instant},
+};
 
-use tracing::{error, info};
+use tracing::{info, warn};
 use uuid::Uuid;
-use windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR;
 use winit::event_loop::EventLoopProxy;
 
-use crate::message_box::message_box;
+use crate::{break_reminder::Break, message::Message, pause::Pause};
 
-/// Starts the notifier thread
-pub fn start_notifier(proxy: EventLoopProxy<Uuid>, break_end_receiver: Receiver<Uuid>) {
-    let interval_str = std::env::args().take(1).next().unwrap_or("20".to_string());
-    let interval_minutes: u64 = interval_str.parse().unwrap_or(20);
-    let interval = Duration::from_secs(interval_minutes * 60);
+/// The notifier object, operates on a separate thread to main event loop.
+pub struct Notifier {
+    /// Proxy to the event loop.
+    proxy: EventLoopProxy<Uuid>,
 
-    info!("Interval set to {interval_minutes} minutes.",);
+    /// Receiever for messages from the event loop.
+    message_receiver: Receiver<Message>,
 
-    thread::spawn(move || loop {
-        thread::sleep(interval);
+    /// The interval between notifications.
+    interval: Duration,
 
-        let id = Uuid::new_v4();
+    /// The paused details of the notifier.
+    paused: Option<Pause>,
 
-        // Send event to window
-        if let Err(e) = proxy.send_event(id) {
-            error!("Failed to send event to window:\n{e}");
-            message_box("Failed to send event to window", MB_ICONERROR);
-            panic!("Failed to send event to window:\n{e}");
+    /// The last break
+    last_break: Break,
+}
+
+struct ShouldCloseThread;
+
+impl Notifier {
+    pub fn new(
+        proxy: EventLoopProxy<Uuid>,
+        message_receiver: Receiver<Message>,
+        interval: Duration,
+    ) -> Self {
+        Self {
+            proxy,
+            message_receiver,
+            interval,
+            paused: None,
+            last_break: Break::default(),
         }
+    }
 
-        // Loop through messages until we get a response for this id
-        'recv_loop: loop {
-            match break_end_receiver.recv() {
-                Ok(recv_id) => {
-                    if recv_id == id {
-                        break 'recv_loop;
-                    }
+    /// Tries to load the interval from the program arguments.
+    pub fn interval_from_args() -> Option<Duration> {
+        let interval_str = std::env::args().take(1).next()?;
+        let interval_minutes: u64 = interval_str.parse().ok()?;
+        Some(Duration::from_secs(interval_minutes * 60))
+    }
+
+    /// This starts the event loop on another thread, takes ownership of the notifier.
+    pub fn start_event_loop(mut self) {
+        thread::spawn(move || loop {
+            if self.handle_events().is_err() {
+                return;
+            };
+
+            if self.should_notify() {
+                let send_result = self.send_reminder();
+                if send_result.is_err() {
+                    return;
+                };
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        });
+    }
+
+    /// Handle any incoming events from the message receiver.
+    fn handle_events(&mut self) -> Result<(), ShouldCloseThread> {
+        let message = match self.message_receiver.try_recv() {
+            Ok(message) => message,
+            Err(e) => match e {
+                TryRecvError::Empty => return Ok(()),
+                TryRecvError::Disconnected => {
+                    // The sender no longer exists, we should shut down.
+                    warn!("Message sender has disconnected, shutting down notifier");
+                    return Err(ShouldCloseThread);
                 }
-                Err(e) => {
-                    error!("Failed to receive break env from app:\n{e}");
-                    message_box("Failed to receive break env from app", MB_ICONERROR);
-                    panic!("Failed to receive break env from app:\n{e}");
+            },
+        };
+
+        match message {
+            Message::EndBreak(uuid) => {
+                if self.last_break.id == uuid {
+                    self.last_break.finished = Some(Instant::now())
+                } else {
+                    warn!(
+                        "End break message's ID ({}) does not match the last break ID ({})",
+                        uuid, self.last_break.id
+                    );
                 }
             }
+
+            Message::PauseReminders(duration) => {
+                let pause = Pause {
+                    duration,
+                    started: Instant::now(),
+                };
+                self.paused = Some(pause);
+            }
+
+            Message::PrintDebug => {
+                info!("Interval: {} minutes", self.interval.as_secs() / 60);
+                match self.paused.as_ref() {
+                    Some(pause) => info!("{pause}"),
+                    None => info!("Paused: No"),
+                };
+                info!("{}", self.last_break);
+            }
         }
-    });
+
+        Ok(())
+    }
+
+    /// Returns if the notifier should send a break notification.
+    fn should_notify(&self) -> bool {
+        if self.is_paused() {
+            return false;
+        }
+
+        match self.last_break.finished {
+            Some(finished_at) => finished_at.elapsed() >= self.interval,
+
+            None => false,
+        }
+    }
+
+    /// Returns if the notifier is paused.
+    fn is_paused(&self) -> bool {
+        let Some(pause) = self.paused.as_ref() else {
+            return false;
+        };
+        pause.is_active()
+    }
+
+    /// Sends a reminder to the event loop.
+    fn send_reminder(&mut self) -> Result<(), ShouldCloseThread> {
+        self.last_break = Break::new();
+
+        let send_result = self.proxy.send_event(self.last_break.id);
+        if send_result.is_err() {
+            warn!("Event loop has closed, notifer will shut down");
+            return Err(ShouldCloseThread);
+        }
+
+        Ok(())
+    }
 }

@@ -1,11 +1,12 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use std::sync::mpsc::channel;
+use std::{sync::mpsc::channel, time::Duration};
 
 use app::App;
 use logger::init_tracing;
+use message::Message;
 use message_box::message_box;
-use notifier::start_notifier;
+use notifier::Notifier;
 use only_instance::is_only_instance;
 use thiserror::Error;
 use tracing::{error, warn};
@@ -13,11 +14,15 @@ use uuid::Uuid;
 use windows::Win32::UI::WindowsAndMessaging::{MB_ICONERROR, MB_ICONWARNING};
 use winit::{error::EventLoopError, event_loop::EventLoop};
 
+mod active_app;
 mod app;
+pub mod break_reminder;
 mod logger;
+pub mod message;
 pub mod message_box;
 mod notifier;
 mod only_instance;
+pub mod pause;
 
 /// App to send a message box with a given interval after the previous message box has been interacted with.
 /// The interval is specified in minutes by the first command line argument and defaults to 20 minutes.
@@ -47,15 +52,15 @@ fn start_app() -> Result<(), Error> {
     // Create event loop
     let event_loop: EventLoop<Uuid> = EventLoop::with_user_event().build()?;
     event_loop.set_control_flow(winit::event_loop::ControlFlow::Wait);
-    let (break_end_sender, break_end_receiver) = channel::<Uuid>();
-
     let proxy = event_loop.create_proxy();
-    start_notifier(proxy, break_end_receiver);
 
-    // Create the app
-    let mut app = App::new(break_end_sender);
+    let (message_sender, message_receiver) = channel::<Message>();
+    let notifier_interval = Notifier::interval_from_args().unwrap_or(Duration::from_secs(60 * 20));
 
-    // run the app
+    let notifier = Notifier::new(proxy, message_receiver, notifier_interval);
+    let mut app = App::new(message_sender);
+
+    notifier.start_event_loop();
     event_loop.run_app(&mut app)?;
 
     Ok(())

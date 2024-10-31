@@ -1,28 +1,30 @@
-mod active_app;
-
 use std::sync::mpsc::Sender;
 
-use active_app::ActiveApp;
 use tracing::error;
 use uuid::Uuid;
 use windows::Win32::UI::WindowsAndMessaging::MB_ICONERROR;
 use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop};
 
-use crate::message_box::message_box;
+use crate::{active_app::ActiveApp, message::Message, message_box::message_box};
 
 /// The core app
 pub struct App {
+    /// The initialised app.
     pub active_app: Option<ActiveApp>,
+
+    /// The current break's ID.
     pub break_id: Option<Uuid>,
-    pub break_end_sender: Sender<Uuid>,
+
+    /// The sender to contant the notifer.
+    pub message_sender: Sender<Message>,
 }
 
 impl App {
-    pub fn new(break_end_sender: Sender<Uuid>) -> Self {
+    pub fn new(message_sender: Sender<Message>) -> Self {
         Self {
             active_app: None,
             break_id: None,
-            break_end_sender,
+            message_sender,
         }
     }
 
@@ -30,7 +32,7 @@ impl App {
     pub fn finish_break(&mut self) {
         // send end notification
         if let Some(break_id) = self.break_id.take() {
-            if let Err(e) = self.break_end_sender.send(break_id) {
+            if let Err(e) = self.message_sender.send(Message::EndBreak(break_id)) {
                 error!("Failed to send break end to waker thread:\n{e}");
                 message_box("Failed to send break end to waker thread.", MB_ICONERROR);
                 panic!("Failed to send break end to waker thread:\n{e}");
@@ -100,6 +102,12 @@ impl ApplicationHandler<Uuid> for App {
             return;
         };
 
-        app.handle_tray_icon(event_loop);
+        if let Some(message) = app.handle_tray_icon(event_loop) {
+            if let Err(e) = self.message_sender.send(message) {
+                error!("Failed to send break end to waker thread:\n{e}");
+                message_box("Failed to send break end to waker thread.", MB_ICONERROR);
+                panic!("Failed to send break end to waker thread:\n{e}");
+            };
+        };
     }
 }

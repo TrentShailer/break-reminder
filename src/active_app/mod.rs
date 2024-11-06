@@ -1,3 +1,4 @@
+mod interval_dialog;
 mod pause_dialog;
 mod tray_icon;
 mod window;

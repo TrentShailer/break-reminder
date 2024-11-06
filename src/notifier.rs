@@ -6,9 +6,10 @@ use std::{
 
 use tracing::{info, warn};
 use uuid::Uuid;
+use windows::Win32::UI::WindowsAndMessaging::MB_ICONINFORMATION;
 use winit::event_loop::EventLoopProxy;
 
-use crate::{break_reminder::Break, message::Message, pause::Pause};
+use crate::{break_reminder::Break, message::Message, message_box::message_box, pause::Pause};
 
 /// The notifier object, operates on a separate thread to main event loop.
 pub struct Notifier {
@@ -112,6 +113,23 @@ impl Notifier {
                 };
                 info!("{}", self.last_break);
             }
+
+            Message::ShowDebug => {
+                let pause = match self.paused.as_ref() {
+                    Some(pause) => format!("{pause}"),
+                    None => "Paused: No".to_string(),
+                };
+                let message = format!(
+                    "Interval: {} minutes\n{}\n{}",
+                    self.interval.as_secs() / 60,
+                    pause,
+                    self.last_break
+                );
+
+                message_box(message, MB_ICONINFORMATION);
+            }
+
+            Message::SetInterval(duration) => self.interval = duration,
         }
 
         Ok(())

@@ -17,6 +17,7 @@ use winit::{error::EventLoopError, event_loop::EventLoop};
 mod active_app;
 mod app;
 pub mod break_reminder;
+pub mod dialog;
 mod logger;
 pub mod message;
 pub mod message_box;

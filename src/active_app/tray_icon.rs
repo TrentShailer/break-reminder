@@ -1,23 +1,14 @@
-use std::time::Duration;
-
 use thiserror::Error;
 use tracing::{error, warn};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder,
 };
-use windows::Win32::{
-    Foundation::{GetLastError, LPARAM},
-    UI::WindowsAndMessaging::DialogBoxIndirectParamW,
-};
 use winit::event_loop::ActiveEventLoop;
 
-use crate::{active_app::pause_dialog::PauseDialogTemplate, message::Message};
+use crate::message::Message;
 
-use super::{
-    pause_dialog::{pause_dialog_callback, OK_ID_ISIZE},
-    ActiveApp,
-};
+use super::ActiveApp;
 
 impl ActiveApp {
     /// Creates the tray icon.
@@ -25,10 +16,18 @@ impl ActiveApp {
         let tray_icon = tray_icon::Icon::from_resource(1, Some((24, 24)))?;
 
         let pause_item = MenuItem::with_id("pause", "Pause breaks for...", true, None);
-        let debug_item = MenuItem::with_id("debug", "Log debug info", true, None);
+        let interval_item = MenuItem::with_id("interval", "Set interval...", true, None);
+        let debug_log_item = MenuItem::with_id("debug_log", "Log debug info", true, None);
+        let debug_show_item = MenuItem::with_id("debug_show", "Show debug info", true, None);
         let quit_item = MenuItem::with_id("quit", "Quit Break Reminder", true, None);
 
-        let tray_menu = Menu::with_items(&[&pause_item, &debug_item, &quit_item])?;
+        let tray_menu = Menu::with_items(&[
+            &pause_item,
+            &interval_item,
+            &debug_show_item,
+            &debug_log_item,
+            &quit_item,
+        ])?;
 
         let tooltip = format!("Break Reminder v{}", env!("CARGO_PKG_VERSION"));
 
@@ -50,51 +49,20 @@ impl ActiveApp {
         match event.id.0.as_str() {
             "pause" => self.show_pause_dialog().map(Message::PauseReminders),
 
+            "interval" => self.show_interval_dialog().map(Message::SetInterval),
+
             "quit" => {
                 event_loop.exit();
                 None
             }
 
-            "debug" => Some(Message::PrintDebug),
+            "debug_log" => Some(Message::PrintDebug),
+
+            "debug_show" => Some(Message::ShowDebug),
 
             id => {
                 warn!("Unhandled tray icon event: {id}");
                 None
-            }
-        }
-    }
-
-    /// Handles the pause dialog.
-    fn show_pause_dialog(&self) -> Option<Duration> {
-        unsafe {
-            let template = PauseDialogTemplate::new();
-            let template_pointer = std::ptr::from_ref(&template.dialog.dialog_template);
-
-            let mut wait_minutes = Box::new(0u32);
-            let wait_minutes_ptr: *mut u32 = &mut *wait_minutes;
-
-            let result = DialogBoxIndirectParamW(
-                None,
-                template_pointer,
-                None,
-                Some(pause_dialog_callback),
-                LPARAM(wait_minutes_ptr as isize),
-            );
-
-            match result {
-                // -1 is an win32 error
-                -1 => {
-                    let error = GetLastError().0;
-                    error!("Failure response from dialog:\n{error}");
-                    None
-                }
-
-                OK_ID_ISIZE => {
-                    let wait_minutes = *wait_minutes.as_ref() as u64;
-                    Some(Duration::from_secs(60 * wait_minutes))
-                }
-
-                _ => None,
             }
         }
     }

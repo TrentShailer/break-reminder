@@ -14,4 +14,10 @@ pub enum Message {
 
     /// Message to print the current status of the notifier.
     PrintDebug,
+
+    /// Message to show a message box with the current status of the notifier.
+    ShowDebug,
+
+    /// Message to set the interval of the notifier.
+    SetInterval(Duration),
 }

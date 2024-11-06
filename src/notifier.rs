@@ -47,7 +47,7 @@ impl Notifier {
 
     /// Tries to load the interval from the program arguments.
     pub fn interval_from_args() -> Option<Duration> {
-        let interval_str = std::env::args().take(1).next()?;
+        let interval_str = std::env::args().last()?;
         let interval_minutes: u64 = interval_str.parse().ok()?;
         Some(Duration::from_secs(interval_minutes * 60))
     }
